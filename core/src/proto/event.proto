@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package com.example.event;
+
+message Event {
+  string id = 1;
+  string type = 2;
+  string data = 3;
+  string timestamp = 4;
+}
+
+service LikeService {
+  rpc LikeEvent(Event) returns (Event);
+  rpc unlikeEvent(Event) returns (Event);
+}

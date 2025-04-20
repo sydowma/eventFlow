@@ -1,0 +1,1 @@
+wrk -t4 -c100 -d30s -s ./request.lua http://localhost:8081/like
