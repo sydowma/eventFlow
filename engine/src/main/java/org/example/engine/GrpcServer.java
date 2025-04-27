@@ -12,7 +12,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 @Component
 public class GrpcServer implements ApplicationRunner {
@@ -34,8 +34,11 @@ public class GrpcServer implements ApplicationRunner {
     }
 
     public void start() throws IOException {
+        ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
+//        ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2);
         server = ServerBuilder.forPort(port)
                 .addService(likeServiceImpl) // Register our service
+                .executor(executorService)
                 .build()
                 .start();
         log.info("gRPC Server started, listening on port {}", port);

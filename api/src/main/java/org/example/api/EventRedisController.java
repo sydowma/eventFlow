@@ -17,12 +17,11 @@ public class EventRedisController {
     }
 
     @PostMapping(value = "/redis/like", consumes = "application/json")
-    public void postEventForRedis(@RequestBody Event event) {
+    public String postEventForRedis(@RequestBody Event event) {
 
-        System.out.println("Received event for Redis: " + event);
         SetArgs setArgs = new SetArgs();
         setArgs.ex(1000);
-        redisStringCommands.set("event:" + event.id(), event.date(), setArgs);
+        return redisStringCommands.set("event:" + event.id(), event.date(), setArgs);
 
     }
 }

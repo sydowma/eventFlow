@@ -1,0 +1,1 @@
+wrk -t4 -c50 -d15s -s ./request.lua http://localhost:8081/redis/like

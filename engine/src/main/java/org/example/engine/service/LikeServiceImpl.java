@@ -2,9 +2,11 @@ package org.example.engine.service;
 
 import com.example.event.EventOuterClass;
 import com.example.event.LikeServiceGrpc;
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.task.VirtualThreadTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -22,19 +24,26 @@ public class LikeServiceImpl extends LikeServiceGrpc.LikeServiceImplBase {
     @Override
     public void likeEvent(EventOuterClass.Event request, StreamObserver<EventOuterClass.Event> responseObserver) {
 
-        // TODO: Implement actual like logic here
-        // For now, just echoing the request back with a modified type
+        try {
+            // Validate request
+            eventStore.putIfAbsent(request.getId(), 0L);
+            Long newCount = eventStore.computeIfPresent(request.getId(), (k, v) -> v + 1);
 
-        EventOuterClass.Event response = request.toBuilder()
-                .setType("LIKED_EVENT") // Indicate the event was liked
-                .setData("Event " + request.getId() + " liked successfully.")
-                .build();
+            // Build response
+            EventOuterClass.Event response = request.toBuilder()
+                    .setType("LIKED_EVENT")
+                    .setData("Event liked successfully. Current likes: " + newCount)
+                    .build();
 
-        eventStore.putIfAbsent(request.getId(), 0L);
-        eventStore.computeIfPresent(response.getId(), (k, v) -> v + 1);
-
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
+            // Send response and complete the stream
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            responseObserver.onError(Status.INTERNAL
+                    .withDescription("Failed to process like: " + e.getMessage())
+                    .withCause(e)
+                    .asRuntimeException());
+        }
     }
 
     @Override

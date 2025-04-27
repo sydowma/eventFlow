@@ -4,15 +4,14 @@ import com.example.event.LikeServiceGrpc;
 import io.grpc.CompressorRegistry;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import org.apache.tomcat.util.threads.VirtualThreadExecutor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.VirtualThreadTaskExecutor;
 
 import javax.annotation.PreDestroy;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.Executor;
+import java.util.concurrent.*;
 
 @Configuration
 public class GrpcClientConfig {
@@ -27,16 +26,12 @@ public class GrpcClientConfig {
     @Value("${grpc.server.port:6565}")
     private int grpcServerPort;
     
-    @Value("${grpc.client.thread-pool-size:16}")
-    private int threadPoolSize;
-    
-    @Value("${grpc.client.max-inbound-message-size:4194304}") // 4MB default
-    private int maxInboundMessageSize;
-    
-    @Value("${grpc.client.max-outbound-message-size:4194304}") // 4MB default
-    private int maxOutboundMessageSize;
-    
-    @Value("${grpc.client.deadline-seconds:60}")
+    private final int threadPoolSize = Runtime.getRuntime().availableProcessors() * 2;
+
+//    @Value("${grpc.client.max-inbound-message-size:131072}") // 128K
+    private final int maxInboundMessageSize = 131072;
+
+    @Value("${grpc.client.deadline-seconds:5}")
     private int deadlineSeconds;
     
     private ManagedChannel channel;
@@ -44,21 +39,26 @@ public class GrpcClientConfig {
     @Bean
     public ManagedChannel managedChannel() {
         // Create an optimized thread pool with proper sizing
-        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(threadPoolSize);
-        
+
+        // Use VirtualThreadExecutor for better performance with gRPC
+
+        // increase TPS 10000
+        ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
+//        ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2);
+
         // Create a communication channel to the gRPC server with optimized settings
         channel = ManagedChannelBuilder.forAddress(grpcServerAddress, grpcServerPort)
-                .usePlaintext() // For production, use TLS
                 // Connection pooling optimization
-                .keepAliveTime(60, TimeUnit.SECONDS)
-                .keepAliveTimeout(10, TimeUnit.SECONDS)
-                .keepAliveWithoutCalls(true)           // Keep connection alive even without active calls
+                .usePlaintext()
+                .keepAliveTime(30, TimeUnit.SECONDS)
+                .keepAliveTimeout(20, TimeUnit.SECONDS)
+                .keepAliveWithoutCalls(true)
                 // Performance optimizations
                 .maxInboundMessageSize(maxInboundMessageSize)
                 .maxRetryAttempts(0)                   // Disable retries to avoid backpressure
                 .compressorRegistry(CompressorRegistry.getDefaultInstance())
                 // Use the optimized thread pool
-                .executor(executor)
+                .executor(executorService)
                 .build();
                 
         return channel;
@@ -77,6 +77,7 @@ public class GrpcClientConfig {
     public LikeServiceGrpc.LikeServiceStub likeServiceStub(ManagedChannel channel) {
         // Increased deadline to avoid premature timeouts
         return LikeServiceGrpc.newStub(channel)
+                .withCompression("gzip")
                 .withDeadlineAfter(deadlineSeconds, TimeUnit.SECONDS);
     }
 
@@ -85,12 +86,6 @@ public class GrpcClientConfig {
         return LikeServiceGrpc.newFutureStub(channel);
     }
 
-    // Define a separate executor for handling gRPC future callbacks
-    @Bean(name = "grpcCallbackExecutor")
-    public Executor grpcCallbackExecutor() {
-        // Configure this pool based on expected callback load
-        return Executors.newFixedThreadPool(threadPoolSize > 0 ? threadPoolSize : 10); 
-    }
     
     @PreDestroy
     public void shutdown() {

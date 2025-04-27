@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.ArrayList;
 import org.springframework.beans.factory.annotation.Qualifier;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("")
@@ -27,68 +28,48 @@ public class EventController {
     private final LikeServiceGrpc.LikeServiceStub likeServiceStub;
     private final LikeServiceGrpc.LikeServiceBlockingStub likeServiceBlockingStub;
     private final LikeServiceGrpc.LikeServiceFutureStub likeServiceFutureStub;
-    private final Executor grpcCallbackExecutor;
 
     @Autowired
     public EventController(
             LikeServiceGrpc.LikeServiceStub likeServiceStub,
             LikeServiceGrpc.LikeServiceBlockingStub likeServiceBlockingStub,
-            LikeServiceGrpc.LikeServiceFutureStub likeServiceFutureStub,
-            @Qualifier("grpcCallbackExecutor") Executor grpcCallbackExecutor) {
+            LikeServiceGrpc.LikeServiceFutureStub likeServiceFutureStub) {
         this.likeServiceStub = likeServiceStub;
         this.likeServiceBlockingStub = likeServiceBlockingStub;
         this.likeServiceFutureStub = likeServiceFutureStub;
-        this.grpcCallbackExecutor = grpcCallbackExecutor;
     }
 
     @PostMapping("/like")
     public CompletableFuture<String> like(@RequestBody Event event) {
-        System.out.println("Received like request: " + event);
-        // Future to be returned to Spring MVC
-        CompletableFuture<String> responseCompletableFuture = new CompletableFuture<>();
+//        System.out.println("Received like request: " + event);
 
-        try {
-            var protoEvent = this.convertToProto(event);
-            // Initiate the async gRPC call
-            ListenableFuture<EventOuterClass.Event> grpcFuture = likeServiceFutureStub.likeEvent(protoEvent);
+        CompletableFuture<String> responseFuture = new CompletableFuture<>();
+        EventOuterClass.Event protoEvent = convertToProto(event);
 
-            // Add a callback to handle the result asynchronously
-            Futures.addCallback(
-                grpcFuture,
-                new FutureCallback<EventOuterClass.Event>() {
+        // Initiate async gRPC server-streaming call
+        likeServiceStub.withDeadlineAfter(2, TimeUnit.SECONDS)
+                .likeEvent(protoEvent, new StreamObserver<EventOuterClass.Event>() {
                     @Override
-                    public void onSuccess(EventOuterClass.Event result) {
-                        // Build the success response
-                        String responseString = "Like event processed successfully via FutureCallback. Response ID: " + result.getId();
-                        System.out.println("gRPC call successful, completing future.");
-                        // Complete the CompletableFuture with the result
-                        responseCompletableFuture.complete(responseString);
+                    public void onNext(EventOuterClass.Event response) {
+                        // Process each streamed response
+                        responseFuture.complete("Like event processed successfully. Response ID: " + response.getId());
                     }
 
                     @Override
-                    public void onFailure(Throwable t) {
-                        // Handle gRPC call failure
-                        System.err.println("Error during async gRPC call: " + t.getMessage());
-                        // Complete the CompletableFuture exceptionally
-                        responseCompletableFuture.completeExceptionally(
-                            new RuntimeException("Error processing like event", t)
-                        );
+                    public void onError(Throwable throwable) {
+                        System.err.println("Error during gRPC call: " + throwable.getMessage());
+                        responseFuture.completeExceptionally(throwable);
                     }
-                },
-                grpcCallbackExecutor // Execute the callback on our dedicated executor
-            );
 
-        } catch (Exception e) {
-            // Handle errors during conversion or before the call
-            System.err.println("Error preparing gRPC call: " + e.getMessage());
-            // Complete the future exceptionally immediately
-            responseCompletableFuture.completeExceptionally(
-                new RuntimeException("Error preparing like event request", e)
-            );
-        }
+                    @Override
+                    public void onCompleted() {
+                        if (!responseFuture.isDone()) {
+                            responseFuture.complete("Like event processed successfully, but no response received.");
+                        }
+                    }
+                });
 
-        // Return the CompletableFuture immediately
-        return responseCompletableFuture;
+        return responseFuture;
     }
     
     @PostMapping("/batch-like")
