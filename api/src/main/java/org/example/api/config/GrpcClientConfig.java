@@ -3,7 +3,8 @@ package org.example.api.config;
 import com.example.event.LikeServiceGrpc;
 import io.grpc.CompressorRegistry;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.netty.channel.ChannelOption;
 import org.apache.tomcat.util.threads.VirtualThreadExecutor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -31,7 +32,7 @@ public class GrpcClientConfig {
 //    @Value("${grpc.client.max-inbound-message-size:131072}") // 128K
     private final int maxInboundMessageSize = 131072;
 
-    @Value("${grpc.client.deadline-seconds:5}")
+    @Value("${grpc.client.deadline-seconds:200}")
     private int deadlineSeconds;
     
     private ManagedChannel channel;
@@ -42,12 +43,13 @@ public class GrpcClientConfig {
 
         // Use VirtualThreadExecutor for better performance with gRPC
 
-        // increase TPS 10000
-        ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
+//        ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
 //        ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2);
 
+        int numThreads = Runtime.getRuntime().availableProcessors() * 2; // Adjust based on workload
+        ForkJoinPool pool = new ForkJoinPool(numThreads);
         // Create a communication channel to the gRPC server with optimized settings
-        channel = ManagedChannelBuilder.forAddress(grpcServerAddress, grpcServerPort)
+        channel = NettyChannelBuilder.forAddress(grpcServerAddress, grpcServerPort)
                 // Connection pooling optimization
                 .usePlaintext()
                 .keepAliveTime(30, TimeUnit.SECONDS)
@@ -56,9 +58,11 @@ public class GrpcClientConfig {
                 // Performance optimizations
                 .maxInboundMessageSize(maxInboundMessageSize)
                 .maxRetryAttempts(0)                   // Disable retries to avoid backpressure
+                .executor(pool)
+                .disableRetry()
                 .compressorRegistry(CompressorRegistry.getDefaultInstance())
+                .withOption(ChannelOption.TCP_NODELAY, true)
                 // Use the optimized thread pool
-                .executor(executorService)
                 .build();
                 
         return channel;
@@ -83,7 +87,12 @@ public class GrpcClientConfig {
 
     @Bean
     public LikeServiceGrpc.LikeServiceFutureStub likeServiceFutureStub(ManagedChannel channel) {
-        return LikeServiceGrpc.newFutureStub(channel);
+        ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
+        return LikeServiceGrpc.newFutureStub(channel)
+                .withCompression("gzip")
+                .withExecutor(executorService)
+                .withMaxInboundMessageSize(maxInboundMessageSize)
+                ;
     }
 
     

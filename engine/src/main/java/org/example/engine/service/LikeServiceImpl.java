@@ -24,6 +24,7 @@ public class LikeServiceImpl extends LikeServiceGrpc.LikeServiceImplBase {
     @Override
     public void likeEvent(EventOuterClass.Event request, StreamObserver<EventOuterClass.Event> responseObserver) {
 
+        request.getTypeBytes().asReadOnlyByteBuffer();
         try {
             // Validate request
             eventStore.putIfAbsent(request.getId(), 0L);

@@ -7,6 +7,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 // Import Futures and FutureCallback for bridging
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.MoreExecutors;
 import io.grpc.stub.StreamObserver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,6 +18,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.List;
 import java.util.ArrayList;
 import org.springframework.beans.factory.annotation.Qualifier;
+
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
@@ -47,28 +50,39 @@ public class EventController {
         EventOuterClass.Event protoEvent = convertToProto(event);
 
         // Initiate async gRPC server-streaming call
-        likeServiceStub.withDeadlineAfter(2, TimeUnit.SECONDS)
-                .likeEvent(protoEvent, new StreamObserver<EventOuterClass.Event>() {
-                    @Override
-                    public void onNext(EventOuterClass.Event response) {
-                        // Process each streamed response
-                        responseFuture.complete("Like event processed successfully. Response ID: " + response.getId());
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {
-                        System.err.println("Error during gRPC call: " + throwable.getMessage());
-                        responseFuture.completeExceptionally(throwable);
-                    }
-
-                    @Override
-                    public void onCompleted() {
-                        if (!responseFuture.isDone()) {
-                            responseFuture.complete("Like event processed successfully, but no response received.");
-                        }
-                    }
-                });
-
+//        likeServiceStub.withDeadlineAfter(200, TimeUnit.MILLISECONDS)
+//                .likeEvent(protoEvent, new StreamObserver<>() {
+//                    @Override
+//                    public void onNext(EventOuterClass.Event response) {
+//                        // Process each streamed response
+//                        responseFuture.complete("Like event processed successfully. Response ID: " + response.getId());
+//                    }
+//
+//                    @Override
+//                    public void onError(Throwable throwable) {
+//                        System.err.println("Error during gRPC call: " + throwable.getMessage());
+//                        responseFuture.completeExceptionally(throwable);
+//                    }
+//
+//                    @Override
+//                    public void onCompleted() {
+//                        if (!responseFuture.isDone()) {
+//                            responseFuture.complete("Like event processed successfully, but no response received.");
+//                        }
+//                    }
+//                });
+//
+//        return responseFuture;
+        ListenableFuture<EventOuterClass.Event> future = likeServiceFutureStub.likeEvent(protoEvent);
+        future.addListener(() -> {
+            try {
+                responseFuture.complete("Like event processed successfully. Response ID: " + future.get().getId());
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+        }, MoreExecutors.directExecutor());
         return responseFuture;
     }
     
