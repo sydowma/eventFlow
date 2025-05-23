@@ -10,6 +10,6 @@ message Event {
 }
 
 service LikeService {
-  rpc LikeEvent(Event) returns (Event);
-  rpc unlikeEvent(Event) returns (Event);
+  rpc LikeEvent(stream Event) returns (stream Event);
+  rpc unlikeEvent(Event) returns (Event); // Keep unlikeEvent as unary
 }

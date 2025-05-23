@@ -22,29 +22,41 @@ public class LikeServiceImpl extends LikeServiceGrpc.LikeServiceImplBase {
     private Map<String, Long> eventStore = new ConcurrentHashMap<>();
 
     @Override
-    public void likeEvent(EventOuterClass.Event request, StreamObserver<EventOuterClass.Event> responseObserver) {
+    public StreamObserver<EventOuterClass.Event> likeEvent(StreamObserver<EventOuterClass.Event> responseObserver) {
+        return new StreamObserver<EventOuterClass.Event>() {
+            @Override
+            public void onNext(EventOuterClass.Event request) {
+                // Process each incoming event
+                try {
+                    eventStore.putIfAbsent(request.getId(), 0L);
+                    Long newCount = eventStore.computeIfPresent(request.getId(), (k, v) -> v + 1);
 
-        request.getTypeBytes().asReadOnlyByteBuffer();
-        try {
-            // Validate request
-            eventStore.putIfAbsent(request.getId(), 0L);
-            Long newCount = eventStore.computeIfPresent(request.getId(), (k, v) -> v + 1);
+                    EventOuterClass.Event response = request.toBuilder()
+                            .setType("LIKED_EVENT")
+                            .setData("Event liked successfully. Current likes: " + newCount)
+                            .build();
+                    responseObserver.onNext(response);
+                } catch (Exception e) {
+                    log.error("Error processing like event: {}", request.getId(), e);
+                    responseObserver.onError(Status.INTERNAL
+                            .withDescription("Failed to process like for event " + request.getId() + ": " + e.getMessage())
+                            .withCause(e)
+                            .asRuntimeException());
+                }
+            }
 
-            // Build response
-            EventOuterClass.Event response = request.toBuilder()
-                    .setType("LIKED_EVENT")
-                    .setData("Event liked successfully. Current likes: " + newCount)
-                    .build();
+            @Override
+            public void onError(Throwable t) {
+                log.error("Error in likeEvent stream: ", t);
+                responseObserver.onError(t);
+            }
 
-            // Send response and complete the stream
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
-        } catch (Exception e) {
-            responseObserver.onError(Status.INTERNAL
-                    .withDescription("Failed to process like: " + e.getMessage())
-                    .withCause(e)
-                    .asRuntimeException());
-        }
+            @Override
+            public void onCompleted() {
+                log.info("Client finished sending like events.");
+                responseObserver.onCompleted();
+            }
+        };
     }
 
     @Override
